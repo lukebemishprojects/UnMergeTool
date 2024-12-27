@@ -13,8 +13,11 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -34,7 +37,10 @@ public class Main implements Runnable {
 
     @CommandLine.Option(names = "--output", description = "Output jar", required = true)
     Path output;
-    
+
+    @CommandLine.Option(names = "--target-classes", description = "Output list of classes targeted", required = true)
+    Path targetClasses;
+
     @CommandLine.Option(names = "--distribution", description = "The distribution to keep elements from", required = true)
     Distribution distribution;
 
@@ -56,6 +62,10 @@ public class Main implements Runnable {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+
+        targetClasses = targetClasses.toAbsolutePath();
+        var targeted = new HashSet<String>();
+
         try (var is = Files.newInputStream(input);
              var os = Files.newOutputStream(output);
              var zis = new ZipInputStream(is);
@@ -90,8 +100,8 @@ public class Main implements Runnable {
                     entries[i] = null;
                     labelled[i] = new byte[0];
                 }
-                
-                processEntries(entries, labelled, futures, excludedClasses);
+
+                processEntries(entries, labelled, futures, excludedClasses, targeted);
 
                 for (int j = 0; j < batchSize; j++) {
                     var entryIn = entries[j];
@@ -124,9 +134,16 @@ public class Main implements Runnable {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+        try {
+            List<String> targetedLines = new ArrayList<>(targeted);
+            targetedLines.sort(Comparator.naturalOrder());
+            Files.write(targetClasses, targetedLines);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
-    private void processEntries(Entry[] entries, byte[][] labelled, Future<?>[] futures, Set<String> excludedClasses) {
+    private void processEntries(Entry[] entries, byte[][] labelled, Future<?>[] futures, Set<String> excludedClasses, Set<String> targetedClasses) {
         for (int i = 0; i < batchSize; i++) {
             var entry = entries[i];
             if (entry == null) {
@@ -141,6 +158,12 @@ public class Main implements Runnable {
                 if (entry.entry().getName().endsWith(".class")) {
                     var reader = new ClassReader(entry.contents());
                     var collector = new CollectingVisitor(null, distribution);
+                    boolean anythingStripped = collector.shouldRemove() || !collector.removeFields().isEmpty() || collector.removeMethods().isEmpty();
+                    if (anythingStripped) {
+                        synchronized (targetedClasses) {
+                            targetedClasses.add(entry.entry().getName());
+                        }
+                    }
                     reader.accept(collector, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
                     if (collector.shouldRemove()) {
                         entries[number] = null;
