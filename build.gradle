@@ -1,0 +1,166 @@
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+    id 'signing'
+    id 'com.gradleup.shadow'
+    id 'dev.lukebemish.managedversioning'
+}
+
+group = 'dev.lukebemish'
+
+managedVersioning {
+    versionFile.set project.file('version.properties')
+    versionPRs()
+    versionSnapshots()
+
+    gitHubActions {
+        snapshot {
+            prettyName.set 'Snapshot'
+            workflowDispatch.set(true)
+            onBranches.add 'main'
+            gradleJob {
+                buildCache()
+                cacheReadOnly.set false
+                javaVersion.set '21'
+                name.set 'build'
+                gradlew 'Build', 'build'
+                gradlew 'Publish', 'publish'
+                mavenSnapshot('github')
+            }
+        }
+        release {
+            prettyName.set 'Release'
+            workflowDispatch.set(true)
+            gradleJob {
+                buildCache()
+                javaVersion.set '21'
+                name.set 'build'
+                step {
+                    setupGitUser()
+                }
+                readOnly.set false
+                gradlew 'Tag Release', 'tagRelease'
+                gradlew 'Build', 'build'
+                step {
+                    run.set 'git push && git push --tags'
+                }
+                recordVersion 'Record Version', 'version'
+                dependencySubmission()
+            }
+            gradleJob {
+                buildCache()
+                javaVersion.set '21'
+                name.set 'publish'
+                needs.add('build')
+                tag.set('${{needs.build.outputs.version}}')
+                gradlew 'Publish', 'publish', 'closeAndReleaseSonatypeStagingRepository', '--no-configuration-cache'
+                sign()
+                mavenCentral()
+                mavenStaging('github')
+            }
+        }
+        build_pr {
+            prettyName.set 'Build PR'
+            pullRequest.set(true)
+            gradleJob {
+                javaVersion.set '21'
+                name.set 'build'
+                gradlew 'Build', 'build'
+                gradlew 'Publish', 'publish'
+                pullRequestArtifact()
+            }
+        }
+        publish_pr {
+            prettyName.set 'Publish PR'
+            publishPullRequestAction(
+                    'github',
+                    "${project.group.replace('.', '/')}/${project.name}",
+                    'Build PR'
+            )
+        }
+    }
+
+    apply()
+}
+
+sourceSets {
+    jst {}
+    common {}
+}
+
+java {
+    withSourcesJar()
+    withJavadocJar()
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+    registerFeature('jst') {
+        usingSourceSet(sourceSets.jst)
+        withSourcesJar()
+        withJavadocJar()
+    }
+}
+
+def mainClassName = 'dev.lukebemish.unmergetool.cli.Main'
+
+jar {
+    manifest {
+        attributes([
+                'Main-Class': mainClassName,
+                'Implementation-Version': project.version as String
+        ])
+    }
+    from sourceSets.common.output
+}
+
+shadowJar {
+    manifest {
+        attributes([
+                'Main-Class': mainClassName,
+                'Implementation-Version': project.version as String
+        ])
+    }
+    from sourceSets.common.output
+}
+
+dependencies {
+    compileOnly cLibs.bundles.compileonly
+    implementation 'info.picocli:picocli:4.7.6'
+    implementation 'org.ow2.asm:asm:9.7'
+    implementation 'org.slf4j:slf4j-simple:2.0.13'
+    annotationProcessor cLibs.bundles.annotationprocessor
+    annotationProcessor 'info.picocli:picocli-codegen:4.7.6'
+    compileOnly sourceSets.common.output
+
+    jstImplementation 'net.neoforged.jst:jst-api:1.0.67'
+    jstCompileOnly cLibs.bundles.compileonly
+    jstAnnotationProcessor cLibs.bundles.annotationprocessor
+    jstCompileOnly sourceSets.common.output
+
+    commonCompileOnly cLibs.bundles.compileonly
+    commonAnnotationProcessor cLibs.bundles.annotationprocessor
+}
+
+compileJava {
+    options.compilerArgs += ["-Aproject=${project.group}/${project.name}"]
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            managedVersioning.publishing.sign(signing, it)
+            managedVersioning.publishing.pom(it, 'UnMergeTool', 'LGPL-3.0-or-later')
+            pom {
+                name = 'UnMergeTool'
+                description = 'A tool to split up jar files\' content by its distribution (client vs server)'
+            }
+
+            from components.java
+        }
+    }
+}
+
+managedVersioning.publishing.mavenStaging(publishing)
+managedVersioning.publishing.mavenCentral()
+managedVersioning.publishing.mavenPullRequest(publishing)
+managedVersioning.publishing.mavenSnapshot(publishing)
