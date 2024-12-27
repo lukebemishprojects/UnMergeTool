@@ -123,6 +123,10 @@ shadowJar {
     from sourceSets.common.output
 }
 
+jstJar {
+    from sourceSets.common.output
+}
+
 dependencies {
     compileOnly cLibs.bundles.compileonly
     implementation 'info.picocli:picocli:4.7.6'
