@@ -38,7 +38,7 @@ public class Main implements Runnable {
     @CommandLine.Option(names = "--output", description = "Output jar", required = true)
     Path output;
 
-    @CommandLine.Option(names = "--target-classes", description = "Output list of classes targeted", required = true)
+    @CommandLine.Option(names = "--target-classes", description = "Output list of classes targeted", required = false)
     Path targetClasses;
 
     @CommandLine.Option(names = "--distribution", description = "The distribution to keep elements from", required = true)
@@ -63,7 +63,9 @@ public class Main implements Runnable {
             throw new UncheckedIOException(e);
         }
 
-        targetClasses = targetClasses.toAbsolutePath();
+        if (targetClasses != null) {
+            targetClasses = targetClasses.toAbsolutePath();
+        }
         var targeted = new HashSet<String>();
 
         try (var is = Files.newInputStream(input);
@@ -134,12 +136,14 @@ public class Main implements Runnable {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
-        try {
-            List<String> targetedLines = new ArrayList<>(targeted);
-            targetedLines.sort(Comparator.naturalOrder());
-            Files.write(targetClasses, targetedLines);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
+        if (targetClasses != null) {
+            try {
+                List<String> targetedLines = new ArrayList<>(targeted);
+                targetedLines.sort(Comparator.naturalOrder());
+                Files.write(targetClasses, targetedLines);
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
         }
     }
 
