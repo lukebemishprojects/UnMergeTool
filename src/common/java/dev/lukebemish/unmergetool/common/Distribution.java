@@ -3,8 +3,8 @@ package dev.lukebemish.unmergetool.common;
 import java.util.List;
 
 public enum Distribution {
-    CLIENT(true, false, List.of("Fabric-Loom-Client-Only-Entries")),
-    SERVER(false, true, List.of("Fabric-Loom-Server-Only-Entries")),
+    CLIENT(true, false, List.of("Fabric-Loom-Server-Only-Entries")),
+    SERVER(false, true, List.of("Fabric-Loom-Client-Only-Entries")),
     COMMON(false, false, List.of("Fabric-Loom-Client-Only-Entries", "Fabric-Loom-Server-Only-Entries"));
 
     public final boolean allowClient;
